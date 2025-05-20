@@ -174,6 +174,7 @@
           <div class="col-md-2">
             <select id="addStatus" class="form-select add-row-input">
               <option value="" selected disabled>Статус</option>
+              <option value="На МХ">На МХ</option>
               <option value="Совпадает">Совпадает</option>
               <option value="Буфер">Буфер</option>
               <option value="Списано">Списано</option>
@@ -193,6 +194,7 @@
       <div class="mb-3">
         <select id="statusSelect" class="form-select status-select" onchange="applyStatusToSelected()">
           <option value="" selected disabled>Выберите актуальный статус</option>
+          <option value="На МХ">На МХ</option>
           <option value="Совпадает">Совпадает</option>
           <option value="Буфер">Буфер</option>
           <option value="Списано">Списано</option>
@@ -529,7 +531,7 @@
   // Редактирование статуса
   function editStatus(element, field, rowId, isActual = false) {
     const statuses = [
-      'Совпадает', 'Буфер', 'Списано', 
+      'На МХ','Совпадает', 'Буфер', 'Списано', 
       'Не на своём МХ', 'Хлам', 'ШК','Нет на МХ'
     ];
     
@@ -596,6 +598,7 @@
   // Цвет статуса
   function statusColor(status) {
     switch(status) {
+      case 'На МХ': return 'success';
       case 'Совпадает': return 'success';
       case 'Буфер': return 'primary';
       case 'Списано': return 'danger';

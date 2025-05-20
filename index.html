@@ -3,14 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, height=device-height">
-  <title>Проверка паллет</title>
- <!-- Google Analytics -->
+  <title>Проверка Excel-файла</title>
+  <!-- Google Analytics -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-PSE0NWCE8Y"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
     gtag('js', new Date());
     gtag('config', 'G-PSE0NWCE8Y');
+    
+    // Функция для отправки событий
+    function trackEvent(eventName, eventParams = {}) {
+      gtag('event', eventName, {
+        ...eventParams,
+        'user_fio': currentUser?.fio || 'guest',
+        'user_block': currentUser?.block || 'unknown'
+      });
+    }
   </script>
   <!-- End Google Analytics -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -174,7 +183,6 @@
           <div class="col-md-2">
             <select id="addStatus" class="form-select add-row-input">
               <option value="" selected disabled>Статус</option>
-              <option value="На МХ">На МХ</option>
               <option value="Совпадает">Совпадает</option>
               <option value="Буфер">Буфер</option>
               <option value="Списано">Списано</option>
@@ -194,7 +202,6 @@
       <div class="mb-3">
         <select id="statusSelect" class="form-select status-select" onchange="applyStatusToSelected()">
           <option value="" selected disabled>Выберите актуальный статус</option>
-          <option value="На МХ">На МХ</option>
           <option value="Совпадает">Совпадает</option>
           <option value="Буфер">Буфер</option>
           <option value="Списано">Списано</option>
@@ -241,15 +248,15 @@
 
   // Инициализация при загрузке страницы
   document.addEventListener('DOMContentLoaded', () => {
+    trackEvent('page_view');
     checkAuth();
     loadFromLocalStorage();
     setupBeforeUnloadWarning();
     
-    // Обработка нажатия Enter в поле поиска
     document.getElementById('searchInput').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
         search();
-        this.value = ''; // Очищаем поле после нажатия Enter
+        this.value = '';
       }
     });
   });
@@ -261,6 +268,7 @@
       try {
         currentUser = JSON.parse(savedUser);
         showMainContent();
+        trackEvent('auto_login');
       } catch (e) {
         showAuthModal();
       }
@@ -273,6 +281,7 @@
   function showAuthModal() {
     document.getElementById('authModal').style.display = 'block';
     document.getElementById('userFio').focus();
+    trackEvent('auth_modal_shown');
   }
 
   // Скрыть модальное окно авторизации
@@ -294,6 +303,7 @@
     
     if (!fio || !block) {
       alert('Пожалуйста, заполните все поля');
+      trackEvent('login_failed', { reason: 'empty_fields' });
       return;
     }
     
@@ -301,11 +311,17 @@
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
     hideAuthModal();
     showMainContent();
+    
+    trackEvent('login_success', {
+      user_fio: fio,
+      user_block: block
+    });
   }
 
   // Выход из системы
   function logout() {
     if (confirm('Вы уверены, что хотите выйти?')) {
+      trackEvent('logout');
       localStorage.removeItem(USER_STORAGE_KEY);
       currentUser = null;
       document.getElementById('mainContent').style.display = 'none';
@@ -321,9 +337,15 @@
         const parsedData = JSON.parse(savedData);
         if (Array.isArray(parsedData)) {
           allRows = parsedData;
+          trackEvent('data_loaded', {
+            rows_count: allRows.length
+          });
         }
       } catch (e) {
         console.error('Ошибка при загрузке данных:', e);
+        trackEvent('load_data_error', {
+          error: e.message
+        });
       }
     }
   }
@@ -335,6 +357,9 @@
       hasUnsavedChanges = false;
     } catch (e) {
       console.error('Ошибка при сохранении данных:', e);
+      trackEvent('save_data_error', {
+        error: e.message
+      });
     }
   }
 
@@ -342,6 +367,7 @@
   function setupBeforeUnloadWarning() {
     window.addEventListener('beforeunload', (e) => {
       if (hasUnsavedChanges) {
+        trackEvent('unsaved_changes_warning');
         e.preventDefault();
         e.returnValue = 'У вас есть несохраненные изменения. Вы уверены, что хотите покинуть страницу?';
         return e.returnValue;
@@ -353,6 +379,12 @@
   document.getElementById('fileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
+    trackEvent('file_upload_start', {
+      file_name: file.name,
+      file_size: file.size,
+      file_type: file.type
+    });
     
     const reader = new FileReader();
     reader.onload = function(event) {
@@ -382,9 +414,20 @@
         hasUnsavedChanges = true;
         saveToLocalStorage();
         search();
+        
+        trackEvent('file_upload_success', {
+          file_name: file.name,
+          rows_added: newRows.length,
+          total_rows: allRows.length
+        });
       } catch (error) {
         console.error('Ошибка при обработке файла:', error);
         alert('Ошибка при чтении файла. Проверьте формат.');
+        
+        trackEvent('file_upload_error', {
+          file_name: file.name,
+          error: error.message
+        });
       }
     };
     reader.readAsArrayBuffer(file);
@@ -400,10 +443,11 @@
     
     if (!placeCod || !placeName || !pallet || !barcode || !status) {
       alert('Пожалуйста, заполните все поля');
+      trackEvent('add_row_validation_failed');
       return;
     }
     
-    allRows.push({
+    const newRow = {
       place_cod: placeCod,
       place_name: placeName,
       pallet: pallet,
@@ -415,7 +459,9 @@
       date: new Date().toLocaleString(),
       id: allRows.length,
       selected: false
-    });
+    };
+    
+    allRows.push(newRow);
     
     // Очищаем поля ввода
     document.getElementById('addPlaceCod').value = '';
@@ -428,23 +474,28 @@
     saveToLocalStorage();
     search();
     document.getElementById('addPlaceCod').focus();
+    
+    trackEvent('row_added', {
+      place_cod: placeCod,
+      pallet: pallet,
+      status: status
+    });
   }
 
   // Поиск по цифрам в place_cod, place_name, Паллет, Баркод
   function search() {
     const input = document.getElementById('searchInput').value.trim();
-    // Извлекаем только цифры из ввода
     const digitsOnly = input.replace(/\D/g, '');
     
     if (!digitsOnly) {
       displayedRows = [];
       renderTable();
       document.getElementById('searchInput').value = '';
+      trackEvent('search_cleared');
       return;
     }
     
     displayedRows = allRows.filter(row => {
-      // Проверяем все нужные поля на наличие извлеченных цифр
       return (
         (row.place_cod && row.place_cod.toString().includes(digitsOnly)) ||
         (row.place_name && row.place_name.toString().includes(digitsOnly)) ||
@@ -455,6 +506,11 @@
     
     renderTable();
     document.getElementById('searchInput').value = '';
+    
+    trackEvent('search_performed', {
+      search_query: input,
+      results_count: displayedRows.length
+    });
   }
 
   // Отображение таблицы с возможностью редактирования
@@ -473,12 +529,10 @@
       const tr = document.createElement('tr');
       const checkbox = `<td><input type="checkbox" ${row.selected ? 'checked' : ''} onchange="toggleSelect(${i})"></td>`;
       
-      // Функция для создания редактируемой ячейки
       const createEditableCell = (value, field, rowId) => {
         return `<div class="editable" onclick="startEdit(this, '${field}', ${rowId})">${value || '—'}</div>`;
       };
       
-      // Функция для создания редактируемого статуса
       const createEditableStatus = (value, field, rowId, isActual = false) => {
         if (!value) value = '—';
         const colorClass = statusColor(value);
@@ -518,6 +572,13 @@
       const newValue = input.value.trim();
       updateRowData(rowId, field, newValue);
       element.innerHTML = newValue || '—';
+      
+      trackEvent('cell_edited', {
+        field: field,
+        row_id: rowId,
+        old_value: currentValue,
+        new_value: newValue
+      });
     };
     
     input.addEventListener('blur', saveEdit);
@@ -531,7 +592,7 @@
   // Редактирование статуса
   function editStatus(element, field, rowId, isActual = false) {
     const statuses = [
-      'На МХ','Совпадает', 'Буфер', 'Списано', 
+      'Совпадает', 'Буфер', 'Списано', 
       'Не на своём МХ', 'Хлам', 'ШК','Нет на МХ'
     ];
     
@@ -539,13 +600,11 @@
     const select = document.createElement('select');
     select.className = 'form-select form-select-sm';
     
-    // Добавляем пустой вариант
     const emptyOption = document.createElement('option');
     emptyOption.value = '';
     emptyOption.textContent = '—';
     select.appendChild(emptyOption);
     
-    // Добавляем варианты статусов
     statuses.forEach(status => {
       const option = document.createElement('option');
       option.value = status;
@@ -562,10 +621,17 @@
       const newValue = select.value;
       updateRowData(rowId, field, newValue);
       
-      // Обновляем цвет после изменения
       const colorClass = statusColor(newValue);
       element.className = `badge text-bg-${colorClass}`;
       element.textContent = newValue || '—';
+      
+      trackEvent('status_changed', {
+        field: field,
+        row_id: rowId,
+        old_status: currentValue,
+        new_status: newValue,
+        is_actual_status: isActual
+      });
     };
     
     select.addEventListener('change', saveEdit);
@@ -576,12 +642,12 @@
   function updateRowData(rowId, field, newValue) {
     const rowIndex = allRows.findIndex(r => r.id === rowId);
     if (rowIndex !== -1) {
+      const oldValue = allRows[rowIndex][field];
       allRows[rowIndex][field] = newValue;
       allRows[rowIndex].fio = currentUser.fio;
       allRows[rowIndex].block = currentUser.block;
       allRows[rowIndex].date = new Date().toLocaleString();
       
-      // Обновляем также в displayedRows
       const displayedIndex = displayedRows.findIndex(r => r.id === rowId);
       if (displayedIndex !== -1) {
         displayedRows[displayedIndex][field] = newValue;
@@ -598,7 +664,6 @@
   // Цвет статуса
   function statusColor(status) {
     switch(status) {
-      case 'На МХ': return 'success';
       case 'Совпадает': return 'success';
       case 'Буфер': return 'primary';
       case 'Списано': return 'danger';
@@ -618,6 +683,11 @@
       allRows[allRowIndex].selected = displayedRows[index].selected;
       hasUnsavedChanges = true;
       saveToLocalStorage();
+      
+      trackEvent('row_selection_changed', {
+        row_id: displayedRows[index].id,
+        selected: displayedRows[index].selected
+      });
     }
   }
 
@@ -627,17 +697,21 @@
     const status = select.value;
     if (!status) return;
     
-    displayedRows.forEach((row, index) => {
-      if (row.selected) {
-        row.actual_status = status;
-        
-        const allRowIndex = allRows.findIndex(r => r.id === row.id);
-        if (allRowIndex !== -1) {
-          allRows[allRowIndex].actual_status = status;
-          allRows[allRowIndex].fio = currentUser.fio;
-          allRows[allRowIndex].block = currentUser.block;
-          allRows[allRowIndex].date = new Date().toLocaleString();
-        }
+    const selectedRows = displayedRows.filter(row => row.selected);
+    if (selectedRows.length === 0) {
+      alert('Нет выбранных строк');
+      return;
+    }
+    
+    selectedRows.forEach((row, index) => {
+      row.actual_status = status;
+      
+      const allRowIndex = allRows.findIndex(r => r.id === row.id);
+      if (allRowIndex !== -1) {
+        allRows[allRowIndex].actual_status = status;
+        allRows[allRowIndex].fio = currentUser.fio;
+        allRows[allRowIndex].block = currentUser.block;
+        allRows[allRowIndex].date = new Date().toLocaleString();
       }
     });
     
@@ -646,6 +720,11 @@
     saveToLocalStorage();
     renderTable();
     document.getElementById('searchInput').focus();
+    
+    trackEvent('bulk_status_change', {
+      status: status,
+      rows_affected: selectedRows.length
+    });
   }
 
   // Сохранение выбранных строк
@@ -653,6 +732,7 @@
     const selected = allRows.filter(row => row.selected);
     if (selected.length === 0) {
       alert("Нет выбранных строк.");
+      trackEvent('save_empty_selection');
       return;
     }
     
@@ -683,16 +763,39 @@
     saveToLocalStorage();
     renderTable();
     document.getElementById('searchInput').focus();
+    
+    trackEvent('data_saved', {
+      rows_saved: selected.length,
+      file_name: link.download
+    });
   }
 
   // Очистка всех данных
   function clearAllData() {
     if (confirm('Вы уверены, что хотите удалить все данные?')) {
+      const rowsCount = allRows.length;
       allRows = [];
       displayedRows = [];
       localStorage.removeItem(STORAGE_KEY);
       renderTable();
       document.getElementById('searchInput').focus();
+      
+      trackEvent('data_cleared', {
+        rows_deleted: rowsCount
+      });
+    }
+  }
+
+  // Отправка событий в Google Analytics
+  function trackEvent(eventName, eventParams = {}) {
+    if (typeof gtag === 'function') {
+      gtag('event', eventName, {
+        ...eventParams,
+        user_fio: currentUser?.fio || 'guest',
+        user_block: currentUser?.block || 'unknown',
+        page_title: document.title,
+        page_location: window.location.href
+      });
     }
   }
 </script>
